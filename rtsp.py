@@ -254,9 +254,21 @@ class RTSPClient(threading.Thread):
     def _process_response(self, msg):
         '''Process the response message'''
         status, headers, body = self._parse_response(msg)
-        rsp_cseq = int(headers['cseq'])
-        if self._cseq_map[rsp_cseq] != 'GET_PARAMETER':
+        try:
+            rsp_cseq = int(headers['cseq'])
+        except KeyError as e:
             self._callback(self._get_time_str() + '\n' + msg)
+            self.do_teardown()
+            raise RTSPError('Unexpected response from server')
+
+        # Best I can tell, GET_PARAMETER is skipped being sent to callback
+        #  because it is part of the heartbeat, and will get called every so
+        #  often (current default 10s). I suppose I understand the intent, but
+        #  not sure its the right approach, with the callback parameter, I 
+        #  want to see all traffic between server and client.
+        #if self._cseq_map[rsp_cseq] != 'GET_PARAMETER':
+        #    self._callback(self._get_time_str() + '\n' + msg)
+        self._callback(self._get_time_str() + '\n' + msg)
         if status == 401 and not self._auth:
             self._add_auth(headers['www-authenticate'])
             self.do_replay_request()
@@ -325,8 +337,9 @@ class RTSPClient(threading.Thread):
         for (k, v) in list(headers.items()):
             msg += END_OF_LINE + '%s: %s'%(k, str(v))
         msg += HEADER_END_STR # End headers
-        if method != 'GET_PARAMETER' or 'x-RetransSeq' in headers:
-            self._callback(self._get_time_str() + END_OF_LINE + msg)
+        #if method != 'GET_PARAMETER' or 'x-RetransSeq' in headers:
+        #    self._callback(self._get_time_str() + END_OF_LINE + msg)
+        self._callback(self._get_time_str() + END_OF_LINE + msg)
         try:
             self._sock.send(msg.encode())
         except socket.error as e:
