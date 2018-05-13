@@ -176,6 +176,7 @@ class RTSPClient(threading.Thread):
         '''Continously check for new data and put it in 
            cache.'''
         try:
+            self._sock.setblocking(0)  #Turn off blocking for the socket
             while not (not self.running):
                 more = self._sock.recv(2048)
                 if not more:
@@ -188,9 +189,7 @@ class RTSPClient(threading.Thread):
         '''Read through the cache and pull out a complete
            response or ANNOUNCE notification message'''
         msg = ''
-        print('here')
         if self.cache():
-            print('this')
             tmp = self.cache()
             try:
                 (msg, tmp) = tmp.split(HEADER_END_STR, 1)
