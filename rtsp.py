@@ -39,7 +39,7 @@ class RTSPURLError(RTSPError): pass
 class RTSPNetError(RTSPError): pass
 
 class RTSPClient(threading.Thread):
-    TRANSPORT_TYPE_LIST = []
+    TRANSPORT_TYPE_LIST = ['rtp_over_tcp']
     NAT_IP_PORT         = ''
     ENABLE_ARQ          = False
     ENABLE_FEC          = False

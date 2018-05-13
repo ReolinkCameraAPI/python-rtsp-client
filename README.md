@@ -12,7 +12,8 @@ Getting Started
         myrtsp.do_describe()
         while myrtsp.state != 'describe':
             time.sleep(0.1)
-        myrtsp.do_setup(rtsp.track_id_str)
+        myrtsp.TRANSPORT_TYPE_LIST =  ['rtp_over_udp','rtp_over_tcp']
+        myrtsp.do_setup(track_id)
         while myrtsp.state != 'setup':
             time.sleep(0.1)
         #Open socket to capture frames here
