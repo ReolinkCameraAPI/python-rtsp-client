@@ -39,7 +39,7 @@ class RTSPURLError(RTSPError): pass
 class RTSPNetError(RTSPError): pass
 
 class RTSPClient(threading.Thread):
-    TRANSPORT_TYPE_LIST = ['rtp_over_tcp']
+    TRANSPORT_TYPE_LIST = ['ts_over_tcp','rtp_over_tcp','ts_over_udp','rtp_over_udp']
     NAT_IP_PORT         = ''
     ENABLE_ARQ          = False
     ENABLE_FEC          = False
@@ -188,16 +188,23 @@ class RTSPClient(threading.Thread):
         '''Read through the cache and pull out a complete
            response or ANNOUNCE notification message'''
         msg = ''
-        if self.cache():
-            tmp = self.cache()
+        tmp = self.cache()
+        if tmp:
             try:
-                (msg, tmp) = tmp.split(HEADER_END_STR, 1)
+                # Check here for a header, if the cache isn't empty and there
+                #  isn't a HEADER_END_STR, then there isn't a proper header in
+                #  the response. For now this will generate an error and fail.
+                (header, body) = tmp.split(HEADER_END_STR, 1)
             except ValueError as e:
                 self._callback(self._get_time_str() + '\n' + tmp)
                 raise RTSPError('Response did not contain double CRLF')
-            content_length = self._get_content_length(msg)
-            msg += HEADER_END_STR + tmp[:content_length]
-            self.set_cache(tmp[content_length:])
+            content_length = self._get_content_length(header)
+            # If the body of the message is less than the given content_length
+            #  then the full message hasn't been received so bail.
+            if (len(body) < content_length):
+                return ''
+            msg = header + HEADER_END_STR + body[:content_length]
+            self.set_cache(body[content_length:])
         return msg
 
     """
@@ -413,13 +420,14 @@ class RTSPClient(threading.Thread):
         self._sendmsg('DESCRIBE', self._orig_url, headers)
 
     def do_setup(self, track_id_str=None, headers={}):
+        #TODO: Currently issues SETUP for all tracks but doesn't keep track 
+        # of all sessions or teardown all of them.
         if self._auth:
             headers['Authorization'] = self._auth
         headers['Transport'] = self._get_transport_type()
-        #TODO: Currently issues SETUP for all tracks but doesn't keep track 
-        # of all sessions or teardown all of them.
+        # If a string is supplied, it must contain the proceeding '/'
         if isinstance(track_id_str,str):
-            self._sendmsg('SETUP', self._orig_url+'/'+track_id_str, headers)
+            self._sendmsg('SETUP', self._orig_url + track_id_str, headers)
         elif isinstance(track_id_str, int):
             self._sendmsg('SETUP', self._orig_url +
                                    '/' +
