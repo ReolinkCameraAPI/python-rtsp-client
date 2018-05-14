@@ -61,7 +61,7 @@ class RTSPClient(threading.Thread):
                             self._parsed_url.path
         self._session_id  = ''
         self._sock        = None
-        self._socks        = socks
+        self._socks       = socks
         self.cur_range    = 'npt=end-'
         self.cur_scale    = 1
         self.location     = ''
@@ -153,6 +153,9 @@ class RTSPClient(threading.Thread):
         try:
             self._sock = self._socks or socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._sock.connect((self._parsed_url.hostname, self._server_port))
+            # Turning off blocking here, as the socket is currently monitored
+            #  in its own thread.
+            self._sock.setblocking(0)
         except socket.error as e:
             raise RTSPNetError('socket error: %s [%s:%d]' % 
                             (e, self._parsed_url.hostname, self._server_port))
@@ -176,12 +179,8 @@ class RTSPClient(threading.Thread):
         '''Continously check for new data and put it in 
            cache.'''
         try:
-            self._sock.setblocking(0)  #Turn off blocking for the socket
-            while not (not self.running):
-                more = self._sock.recv(2048)
-                if not more:
-                    break
-                self.cache(more.decode())
+            more = self._sock.recv(2048)
+            self.cache(more.decode())
         except socket.error as e:
             RTSPNetError('Receive data error: %s' % e)
 
