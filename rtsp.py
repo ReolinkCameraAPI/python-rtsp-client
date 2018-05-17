@@ -425,8 +425,11 @@ class RTSPClient(threading.Thread):
         if self._auth:
             headers['Authorization'] = self._auth
         headers['Transport'] = self._get_transport_type()
-        # If a string is supplied, it must contain the proceeding '/'
         if isinstance(track_id_str,str):
+            if not track_id_str.startswith('/') and not track_id_str == '':
+                track_id_str = '/' + track_id_str
+            if track_id_str.startswith(self._orig_url):
+                track_id_str = track_id_str.lstrip(self._orig_url)
             self._sendmsg('SETUP', self._orig_url + track_id_str, headers)
         elif isinstance(track_id_str, int):
             self._sendmsg('SETUP', self._orig_url +
