@@ -61,7 +61,7 @@ class RTSPClient(threading.Thread):
                             self._parsed_url.path
         self._session_id  = ''
         self._sock        = None
-        self._socks        = socks
+        self._socks       = socks
         self.cur_range    = 'npt=end-'
         self.cur_scale    = 1
         self.location     = ''
@@ -108,7 +108,8 @@ class RTSPClient(threading.Thread):
     def run(self):
         try:
             while self.running:
-                self.response = msg = self.recv_msg()
+                self._recv_msg()
+                self.response = msg = self._parse_msg()
                 if msg.startswith('RTSP'):
                     self._process_response(msg)
                 elif msg.startswith('ANNOUNCE'):
@@ -146,6 +147,9 @@ class RTSPClient(threading.Thread):
         try:
             self._sock = self._socks or socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._sock.connect((self._parsed_url.hostname, self._server_port))
+            # Turning off blocking here, as the socket is currently monitored
+            #  in its own thread.
+            self._sock.setblocking(0)
         except socket.error as e:
             raise RTSPNetError('socket error: %s [%s:%d]' % 
                             (e, self._parsed_url.hostname, self._server_port))
@@ -165,29 +169,36 @@ class RTSPClient(threading.Thread):
             self._dest_ip = self._sock.getsockname()[0]
             self._callback('DEST_IP: %s\n' % self._dest_ip)
 
-    def recv_msg(self):
-        '''A complete response message or 
-           an ANNOUNCE notification message is received'''
+    def _recv_msg(self):
+        '''Continously check for new data and put it in 
+           cache.'''
         try:
-            while not (not self.running or HEADER_END_STR in self.cache()):
-                more = self._sock.recv(2048)
-                if not more:
-                    break
-                self.cache(more.decode())
+            more = self._sock.recv(2048)
+            self.cache(more.decode())
         except socket.error as e:
             RTSPNetError('Receive data error: %s' % e)
 
+    def _parse_msg(self):
+        '''Read through the cache and pull out a complete
+           response or ANNOUNCE notification message'''
         msg = ''
-        if self.cache():
-            tmp = self.cache()
+        tmp = self.cache()
+        if tmp:
             try:
-            	(msg, tmp) = tmp.split(HEADER_END_STR, 1)
+                # Check here for a header, if the cache isn't empty and there
+                #  isn't a HEADER_END_STR, then there isn't a proper header in
+                #  the response. For now this will generate an error and fail.
+                (header, body) = tmp.split(HEADER_END_STR, 1)
             except ValueError as e:
-            	self._callback(self._get_time_str() + '\n' + tmp)
-            	raise RTSPError('Response did not contain double CRLF')
-            content_length = self._get_content_length(msg)
-            msg += HEADER_END_STR + tmp[:content_length]
-            self.set_cache(tmp[content_length:])
+                self._callback(self._get_time_str() + '\n' + tmp)
+                raise RTSPError('Response did not contain double CRLF')
+            content_length = self._get_content_length(header)
+            # If the body of the message is less than the given content_length
+            #  then the full message hasn't been received so bail.
+            if (len(body) < content_length):
+                return ''
+            msg = header + HEADER_END_STR + body[:content_length]
+            self.set_cache(body[content_length:])
         return msg
 
     def _add_auth(self, msg):
@@ -254,9 +265,21 @@ class RTSPClient(threading.Thread):
     def _process_response(self, msg):
         '''Process the response message'''
         status, headers, body = self._parse_response(msg)
-        rsp_cseq = int(headers['cseq'])
-        if self._cseq_map[rsp_cseq] != 'GET_PARAMETER':
+        try:
+            rsp_cseq = int(headers['cseq'])
+        except KeyError as e:
             self._callback(self._get_time_str() + '\n' + msg)
+            self.do_teardown()
+            raise RTSPError('Unexpected response from server')
+
+        # Best I can tell, GET_PARAMETER is skipped being sent to callback
+        #  because it is part of the heartbeat, and will get called every so
+        #  often (current default 10s). I suppose I understand the intent, but
+        #  not sure its the right approach, with the callback parameter, I 
+        #  want to see all traffic between server and client.
+        #if self._cseq_map[rsp_cseq] != 'GET_PARAMETER':
+        #    self._callback(self._get_time_str() + '\n' + msg)
+        self._callback(self._get_time_str() + '\n' + msg)
         if status == 401 and not self._auth:
             self._add_auth(headers['www-authenticate'])
             self.do_replay_request()
@@ -325,8 +348,9 @@ class RTSPClient(threading.Thread):
         for (k, v) in list(headers.items()):
             msg += END_OF_LINE + '%s: %s'%(k, str(v))
         msg += HEADER_END_STR # End headers
-        if method != 'GET_PARAMETER' or 'x-RetransSeq' in headers:
-            self._callback(self._get_time_str() + END_OF_LINE + msg)
+        #if method != 'GET_PARAMETER' or 'x-RetransSeq' in headers:
+        #    self._callback(self._get_time_str() + END_OF_LINE + msg)
+        self._callback(self._get_time_str() + END_OF_LINE + msg)
         try:
             self._sock.send(msg.encode())
         except socket.error as e:
@@ -363,13 +387,14 @@ class RTSPClient(threading.Thread):
         self._sendmsg('DESCRIBE', self._orig_url, headers)
 
     def do_setup(self, track_id_str=None, headers={}):
+        #TODO: Currently issues SETUP for all tracks but doesn't keep track 
+        # of all sessions or teardown all of them.
         if self._auth:
             headers['Authorization'] = self._auth
         headers['Transport'] = self._get_transport_type()
-        #TODO: Currently issues SETUP for all tracks but doesn't keep track 
-        # of all sessions or teardown all of them.
+        # If a string is supplied, it must contain the proceeding '/'
         if isinstance(track_id_str,str):
-            self._sendmsg('SETUP', self._orig_url+'/'+track_id_str, headers)
+            self._sendmsg('SETUP', self._orig_url + track_id_str, headers)
         elif isinstance(track_id_str, int):
             self._sendmsg('SETUP', self._orig_url +
                                    '/' +
