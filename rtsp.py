@@ -11,7 +11,7 @@
 # Ported to Python3, removed GoodThread
 # -killian441
 
-import ast, datetime, re, socket, threading, time, traceback
+import ast, base64, datetime, re, socket, threading, time, traceback
 from hashlib import md5
 try:
     from urllib.parse import urlparse
@@ -206,8 +206,13 @@ class RTSPClient(threading.Thread):
            (i.e. everything after "www-authentication")'''
         #TODO: this is too simplistic and will fail if more than one method
         #       is acceptable, among other issues
+        #       i.e. REALM-value is case-sensitive, so theres a failure.
         if msg.lower().startswith('basic'):
-            pass
+            response = self._parsed_url.username + ':' + \
+                       self._parsed_url.password
+            response = base64.b64encode(response.encode())
+            auth_string = 'Basic {}'.format(response)
+            self._auth = auth_string
         elif msg.lower().startswith('digest '):
             mod_msg = '{'+msg[7:].replace('=',':')+'}'
             mod_msg = mod_msg.replace('realm','"realm"')
