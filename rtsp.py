@@ -155,7 +155,7 @@ class RTSPClient(threading.Thread):
                             (e, self._parsed_url.hostname, self._server_port))
 
     def _update_content_base(self, msg):
-        m = re.search(r'[Cc]ontent-[Bb]ase:\s?(?P<base>[a-zA-Z0-9_:\/\.]+)', msg)
+        m = re.search(r'[Cc]ontent-[Bb]ase:\s?(?P<base>[a-zA-Z0-9_:\/\.-]+)', msg)
         if (m and m.group('base')):
             new_url = m.group('base')
             if new_url[-1] == '/':
@@ -328,7 +328,9 @@ class RTSPClient(threading.Thread):
 
     def _parse_track_id(self, sdp):
         '''Resolves a string of the form trackID = 2 from sdp'''
-        m = re.findall(r'a=control:(?P<trackid>[\w=\d]+)', sdp, re.S)
+        #m = re.findall(r'a=control:(?P<trackid>[\w=\d]+)', sdp, re.S)
+        # The following returns full url after a=control:
+        m = re.findall(r'a=control:(?P<trackid>[:/\.\w\d]+[=\d])', sdp, re.S)
         self.track_id_lst = m
 
     def _next_seq(self):
