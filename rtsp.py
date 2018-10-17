@@ -335,8 +335,9 @@ class RTSPClient(threading.Thread):
         '''Resolves a string of the form trackID = 2 from sdp'''
         #m = re.findall(r'a=control:(?P<trackid>[\w=\d]+)', sdp, re.S)
         # The following returns full url after a=control:
-        m = re.findall(r'a=control:(?P<trackid>[:/\.\w\d]+[=\d])', sdp, re.S)
-        self.track_id_lst = m
+        m = re.findall(r'a=control:(?P<trackid>[:/\.\w\d]+[=\d][\d]*)', sdp, re.S)
+        m.remove(self._orig_url)
+        self.track_id_lst = [x.replace(self._orig_url+'/','') for x in m]
 
     def _next_seq(self):
         self._cseq += 1
